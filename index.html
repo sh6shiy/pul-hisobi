@@ -135,6 +135,9 @@ h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;
 .wallet.c-UZS{background:linear-gradient(135deg,#3b82f6,#06b6d4)}
 .wallet.c-USD{background:linear-gradient(135deg,#10b981,#047857)}
 .wallet.c-EGP{background:linear-gradient(135deg,#f59e0b,#c2410c)}
+.wallet.c-X{background:linear-gradient(135deg,#8b5cf6,#6d28d9)}
+.curadd{margin-top:10px;padding:12px;border-radius:16px;background:rgba(255,255,255,.55);border:1px solid rgba(47,124,246,.25)}
+.seg button.plus{flex:0 0 44px;font-weight:700;font-size:18px}
 .wallet.addw{min-width:120px;background:rgba(255,255,255,.55);border:2px dashed rgba(47,124,246,.45);color:var(--acc,#2f7cf6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;font-size:13px;font-weight:600}
 .wallet.addw::before,.wallet.addw::after{display:none}
 .wallet.addw b{font-size:30px;line-height:1;font-weight:500}
@@ -351,6 +354,15 @@ function fmt(n){
 }
 var CURS={UZS:{sym:'so‘m',name:'So‘m',dec:0},USD:{sym:'$',name:'Dollar',dec:2},EGP:{sym:'junayh',name:'Junayh',dec:2}};
 var CUR_LIST=['UZS','USD','EGP'];
+var BASE_CUR={UZS:1,USD:1,EGP:1};
+/* qo'shimcha valyutalar (foydalanuvchi "+" orqali qo'shadi) */
+var POP_CUR={RUB:['Rubl','₽'],EUR:['Yevro','€'],KZT:['Tenge','₸'],TRY:['Lira','₺'],SAR:['Riyol','riyol'],AED:['Dirham','dirham'],GBP:['Funt','£'],CNY:['Yuan','yuan'],KGS:['Som (KG)','KGS'],TJS:['Somoni','TJS'],KRW:['Von','₩'],JPY:['Iyena','iyena'],KWD:['Dinor (KW)','KWD'],QAR:['Riyol (QA)','QAR'],INR:['Rupiy','₹'],CHF:['Frank','CHF']};
+function regCur(c){
+  if(!/^[A-Z]{3}$/.test(c)) return false;
+  if(!CURS[c]){ var p=POP_CUR[c]; CURS[c]={sym:p?p[1]:c,name:p?p[0]:c,dec:2}; }
+  if(CUR_LIST.indexOf(c)<0) CUR_LIST.push(c);
+  return true;
+}
 function fmtC(n,c){
   var d=(CURS[c]||CURS.USD).dec, neg=n<0; n=Math.abs(n);
   var parts=n.toFixed(d).split('.');
@@ -361,7 +373,7 @@ function fmtC(n,c){
 function inputVal(n,c){ return n?fmtC(n,c).replace('−','').replace(/,0+$/,''):''; }
 function amt(n,c,sign){ return (sign&&n>0?'+':'')+fmtC(n,c)+' '+(CURS[c]||CURS.USD).sym; }
 function money(n,sign){ return amt(n,'USD',sign); }   /* umumiy summalar dollarda */
-function rate(c){ if(c==='USD') return 1; var r=+(S.settings.rates||{})[c]; return r>0?r:DEF_RATES[c]; }
+function rate(c){ if(c==='USD') return 1; var r=+(S.settings.rates||{})[c]; return r>0?r:(DEF_RATES[c]||1); }
 function toUsd(a,c){ return Math.round(a/rate(c)*100)/100; }
 function parseAmt(s){ var v=parseFloat(String(s).replace(/\s/g,'').replace(',','.')); return isFinite(v)?v:0; }
 function short(n){ if(n>=1e9) return (n/1e9).toFixed(1).replace('.0','')+'mlrd'; if(n>=1e6) return (n/1e6).toFixed(1).replace('.0','')+'mln'; if(n>=1e3) return (n/1e3).toFixed(n<1e4?1:0).replace('.0','')+'k'; return String(Math.round(n)); }
@@ -446,6 +458,7 @@ function deser(str){
   delete settings.cur;
   var rates=Object.assign({},DEF_RATES,settings.rates||{});
   settings.rates=rates;
+  settings.xc=(Array.isArray(settings.xc)?settings.xc:[]).filter(function(c){ return !BASE_CUR[c] && regCur(c); });
   if(old && settings.budget>0) settings.budget=Math.round(settings.budget/rates.UZS*100)/100;
   var st={
     settings:settings,
@@ -696,7 +709,7 @@ function renderHome(){
   }
   var totalUsd=0;
   var wh=S.wallets.map(function(w){ var v=walBalance(w); totalUsd+=v/rate(w.cur);
-    return '<div class="wallet c-'+w.cur+'" data-act="editWal" data-id="'+esc(w.id)+'"><div class="wn"><span class="ellip">'+esc(w.name)+'</span><span>'+esc(w.e)+'</span></div><div class="v">'+amt(v,w.cur)+'</div><div class="s">'+(w.cur!=='USD'?'≈ '+money(v/rate(w.cur)):CURS[w.cur].name)+'</div></div>'; }).join('');
+    return '<div class="wallet c-'+(BASE_CUR[w.cur]?w.cur:'X')+'" data-act="editWal" data-id="'+esc(w.id)+'"><div class="wn"><span class="ellip">'+esc(w.name)+'</span><span>'+esc(w.e)+'</span></div><div class="v">'+amt(v,w.cur)+'</div><div class="s">'+(w.cur!=='USD'?'≈ '+money(v/rate(w.cur)):CURS[w.cur].name)+'</div></div>'; }).join('');
   wh+='<div class="wallet addw" data-act="editWal" data-id=""><b>+</b><span>Hisob / karta qo‘shish</span></div>';
   h+='<h2>Hisoblar · jami ≈ '+money(totalUsd)+'</h2><div class="wallets">'+wh+'</div>';
 
@@ -888,6 +901,7 @@ function renderSet(){
     '<p class="small muted" style="margin:0 0 10px">Umumiy kirim, chiqim va foyda <b>dollarda</b> hisoblanadi. Har bir yozuv kiritilgan paytdagi kurs bo‘yicha dollarga o‘giriladi va shu qiymat saqlanib qoladi. Tarixda esa summa siz kiritgan valyutada ko‘rinadi.</p>'+
     '<span class="lbl" style="margin-top:0">1 $ = … so‘m</span><input class="inp" id="rUZS" inputmode="decimal" value="'+fmt(rate('UZS'))+'">'+
     '<span class="lbl">1 $ = … junayh</span><input class="inp" id="rEGP" inputmode="decimal" value="'+fmt(rate('EGP'))+'">'+
+    (S.settings.xc||[]).map(function(c){ return '<span class="lbl">1 $ = … '+esc(CURS[c].name)+' ('+c+')</span><input class="inp" id="r'+c+'" inputmode="decimal" value="'+inputVal(rate(c),'USD').replace(/^$/,'0')+'">'; }).join('')+
     '<div class="row between" style="margin-top:14px"><span class="grow small">Kursni avtomatik yangilash<div class="muted">'+(ra?'Oxirgi yangilanish: '+dayLabel(ra)+', '+pad(ra.getHours())+':'+pad(ra.getMinutes()):'Hali yangilanmagan')+'</div></span>'+
     '<button class="chip'+(S.settings.ratesAuto?' on':'')+'" data-act="rauto">'+(S.settings.ratesAuto?'Yoqilgan':'O‘chirilgan')+'</button></div>'+
     '<button class="btn block" data-act="rnow">🔄 Kursni hozir yangilash</button>'+
@@ -907,7 +921,7 @@ function renderSet(){
     '<div class="item" data-act="wipe"><div class="ico" style="background:rgba(255,255,255,.6)">🗑</div><div class="grow exp">Barcha ma’lumotlarni o‘chirish</div></div>'+
   '</div><p class="small muted" style="text-align:center">Yozuvlar: '+S.tx.length+' · Pul hisobi v2.0</p>';
   $('#view').innerHTML=h;
-  ['UZS','EGP'].forEach(function(c){ var el=$('#r'+c); bindAmt(el);
+  ['UZS','EGP'].concat(S.settings.xc||[]).forEach(function(c){ var el=$('#r'+c); if(!el) return; bindAmt(el);
     el.addEventListener('change',function(){ var v=parseAmt(el.value); if(v>0){ S.settings.rates[c]=v; S.settings.ratesAuto=false; save(); render(); toast('Kurs saqlandi (avtomatik yangilash o‘chirildi)'); } }); });
   var b=$('#setBudget'); bindAmt(b);
   b.addEventListener('change',function(){ S.settings.budget=parseAmt(b.value); save(); toast('Byudjet saqlandi'); });
@@ -933,7 +947,17 @@ function sheet2(title,html){ $('#s2Title').textContent=title; $('#s2Body').inner
 function segHtml(id,opts,val,cb){
   return '<div class="seg" id="'+id+'" data-v="'+esc(val)+'"'+(cb?' data-cb="'+cb+'"':'')+'>'+opts.map(function(o){ return '<button class="'+(o[2]||'n')+(o[0]===val?' on':'')+'" data-act="segpick" data-v="'+esc(o[0])+'">'+o[1]+'</button>'; }).join('')+'</div>';
 }
-function curSeg(id,val){ return segHtml(id,CUR_LIST.map(function(c){return [c,CURS[c].name];}),val); }
+function curSeg(id,val,plus){
+  var h=segHtml(id,CUR_LIST.map(function(c){return [c,BASE_CUR[c]?CURS[c].name:c];}),val);
+  if(plus) h=h.replace(/<\/div>$/,'<button class="n plus" data-act="curPlus" data-for="'+id+'" aria-label="Valyuta qo‘shish">+</button></div>');
+  return h;
+}
+function curAddBox(){
+  var have=CUR_LIST;
+  return '<div class="curadd hide" id="curAdd"><div class="small muted" style="margin-bottom:8px">Valyutani tanlang yoki 3 harfli kodini yozing (masalan: RUB, EUR, KZT)</div>'+
+    '<div class="chips">'+Object.keys(POP_CUR).filter(function(c){return have.indexOf(c)<0;}).map(function(c){ return '<button class="chip" data-act="curNew" data-c="'+c+'">'+c+' · '+esc(POP_CUR[c][0])+'</button>'; }).join('')+'</div>'+
+    '<div class="row" style="gap:8px;margin-top:10px"><input class="inp" id="curCode" maxlength="3" placeholder="Kod: RUB" style="margin:0;text-transform:uppercase"><button class="btn primary" style="margin:0;flex:none" data-act="curNew">Qo‘shish</button></div></div>';
+}
 function walSelect(id,val,none){
   return '<select class="inp" id="'+id+'">'+(none?'<option value="">— Hisobga ta’sir qilmasin</option>':'')+S.wallets.map(function(w){ return '<option value="'+esc(w.id)+'"'+(w.id===val?' selected':'')+'>'+esc(w.e+' '+w.name+' ('+CURS[w.cur].sym+')')+'</option>'; }).join('')+'</select>';
 }
@@ -990,7 +1014,10 @@ function drawForm(){
   $('#amt2Wrap').style.display=(X && F.cur!==F.cur2)?'':'none';
   $('#txCur2').textContent=CURS[F.cur2||'USD'].sym;
   $('#txDate').value=F.d;
-  document.querySelectorAll('#txCurSeg button').forEach(function(b){ b.classList.toggle('on',b.dataset.c===F.cur); });
+  var TXL={UZS:'so‘m',USD:'$ dollar',EGP:'junayh'};
+  if(CUR_LIST.indexOf(F.cur)<0) regCur(F.cur);
+  $('#txCurSeg').innerHTML=CUR_LIST.map(function(c){ return '<button class="n'+(c===F.cur?' on':'')+'" data-act="fcur" data-c="'+c+'">'+(TXL[c]||esc(c))+'</button>'; }).join('');
+  $('#txCurSeg').style.overflowX=CUR_LIST.length>4?'auto':'';
   $('#txCur').textContent=CURS[F.cur].sym;
   $('#repChip').style.display=(!F.id && !X)?'':'none';
   $('#repChip').classList.toggle('on',!!F.rep);
@@ -1054,13 +1081,19 @@ function editWal(id){
   sheet2(id?'Hisob':'Yangi hisob',
     '<span class="lbl">Belgi (emoji)</span><input class="inp" id="wE" maxlength="4" value="'+esc(w.e)+'" placeholder="🏦">'+
     '<span class="lbl">Nomi</span><input class="inp" id="wN" maxlength="30" value="'+esc(w.name)+'" placeholder="masalan: Humo karta, Dollar">'+
-    '<span class="lbl">Hisob valyutasi</span>'+curSeg('wCur',w.cur)+
-    '<span class="lbl">Boshlang‘ich qoldiq — hisob valyutasida (hozir shu hisobda qancha bor edi)</span><input class="inp" id="wI" inputmode="decimal" value="'+inputVal(w.init,w.cur)+'" placeholder="0">'+
-    '<p class="small muted" style="margin:8px 4px">Boshlang‘ich qoldiq kirim/foyda hisobiga qo‘shilmaydi — faqat hisob qoldig‘ini to‘g‘ri ko‘rsatish uchun.</p>'+
+    '<span class="lbl">Hisob valyutasi</span>'+curSeg('wCur',w.cur,true)+curAddBox()+
+    '<span class="lbl">'+(id?'Hozirgi qoldiq':'Hozir bu hisobda qancha bor')+' — hisob valyutasida</span><input class="inp" id="wI" inputmode="decimal" value="'+(id?inputVal(Math.round(walBalance(w)*100)/100,w.cur):'')+'" placeholder="0">'+
+    '<p class="small muted" style="margin:8px 4px">Shu yerda yozgan summangiz kartada aynan shunday ko‘rinadi. Keyingi kirimlar qo‘shiladi, chiqimlar ayriladi. Qo‘lda to‘g‘rilash kirim/foyda hisobiga qo‘shilmaydi.</p>'+
     '<button class="btn primary block" style="margin-top:16px" data-act="saveWal" data-id="'+esc(w.id)+'">Saqlash</button>'+
     (id&&isBaseW(id)?'<p class="small muted" style="margin:10px 4px;text-align:center">Bu asosiy hisob — nomi va valyutasini o‘zgartirish mumkin, o‘chirib bo‘lmaydi.</p>':'')+
     (id&&!isBaseW(id)&&S.wallets.length>1?'<button class="btn danger block" data-act="delWal" data-id="'+esc(id)+'">O‘chirish</button>':''));
   bindAmt($('#wI'));
+}
+/* hisob formasida valyutani qayta chizib, berilganini tanlash */
+function pickWalCur(c){
+  var s=$('#wCur'); if(!s) return;
+  s.outerHTML=curSeg('wCur',c,true);
+  var b=$('#curAdd'); if(b) b.outerHTML=curAddBox();
 }
 function addLimit(){
   var free=S.cats.filter(function(c){return c.t==='e'&&!(c.limit>0);});
@@ -1412,11 +1445,25 @@ var A={
     S.tx.forEach(function(x){ if(x.c===id) x.c=c.t+'_other'; }); S.rec.forEach(function(r){ if(r.c===id) r.c=c.t+'_other'; });
     S.cats=S.cats.filter(function(z){return z.id!==id;}); save(); closeTop(); render(); toast('O‘chirildi'); }); },
   editWal:function(el){ editWal(el.dataset.id); },
+  curPlus:function(){ var b=$('#curAdd'); if(b){ b.classList.toggle('hide'); hap(); if(!b.classList.contains('hide')) setTimeout(function(){ b.scrollIntoView({block:'nearest',behavior:'smooth'}); },50); } },
+  curNew:function(el){
+    var c=(el.dataset.c||($('#curCode')?$('#curCode').value:'')).trim().toUpperCase();
+    if(!/^[A-Z]{3}$/.test(c)){ hap('err'); toast('3 harfli valyuta kodini yozing, masalan: RUB'); return; }
+    if(CUR_LIST.indexOf(c)>=0){ pickWalCur(c); return; }
+    toast('Kurs olinmoqda…');
+    fetch('https://open.er-api.com/v6/latest/USD').then(function(r){return r.json();}).then(function(j){
+      var v=j&&j.result==='success'&&j.rates?+j.rates[c]:0;
+      if(!(v>0)){ hap('err'); toast('“'+c+'” valyutasi topilmadi — kodni tekshiring'); return; }
+      regCur(c); S.settings.xc=(S.settings.xc||[]).concat([c]); S.settings.rates[c]=Math.round(v*1e4)/1e4; save();
+      pickWalCur(c); hap('ok'); toast(CURS[c].name+' qo‘shildi · 1 $ = '+fmt(S.settings.rates[c])+' '+CURS[c].sym);
+    }).catch(function(){ hap('err'); toast('Kursni olib bo‘lmadi — internetni tekshiring'); });
+  },
   saveWal:function(el){
-    var name=$('#wN').value.trim(), e=$('#wE').value.trim()||'👛', init=amountOf($('#wI').value)||0, id=el.dataset.id, cur=$('#wCur').dataset.v||'UZS';
+    var name=$('#wN').value.trim(), e=$('#wE').value.trim()||'👛', bal=amountOf($('#wI').value)||0, id=el.dataset.id, cur=$('#wCur').dataset.v||'UZS';
     if(!name){ toast('Nomini kiriting'); return; }
-    if(id) S.wallets.forEach(function(w){ if(w.id===id){ w.name=name; w.e=e; w.init=init; w.cur=cur; } });
-    else S.wallets.push({id:'w'+uid(),e:e,name:name,init:init,cur:cur});
+    /* kiritilgan summa = kartada ko'rinadigan qoldiq: init = qoldiq − (kirim/chiqimlar ta'siri) */
+    if(id) S.wallets.forEach(function(w){ if(w.id===id){ w.name=name; w.e=e; w.cur=cur; w.init=0; w.init=Math.round((bal-walBalance(w))*100)/100; } });
+    else S.wallets.push({id:'w'+uid(),e:e,name:name,init:bal,cur:cur});
     save(); closeTop(); render(); hap('ok'); toast('Hisob saqlandi');
   },
   delWal:function(el){ var id=el.dataset.id, w=walOf(id), other=S.wallets.filter(function(z){return z.id!==id;})[0];
@@ -1492,7 +1539,9 @@ function updateRates(manual){
   ratesBusy=true;
   fetch('https://open.er-api.com/v6/latest/USD').then(function(r){return r.json();}).then(function(j){
     if(!j || j.result!=='success' || !j.rates || !(j.rates.UZS>0) || !(j.rates.EGP>0)) throw new Error('bad');
-    S.settings.rates={UZS:Math.round(j.rates.UZS*100)/100,EGP:Math.round(j.rates.EGP*100)/100};
+    var nr={UZS:Math.round(j.rates.UZS*100)/100,EGP:Math.round(j.rates.EGP*100)/100};
+    (S.settings.xc||[]).forEach(function(c){ var v=+j.rates[c]; nr[c]=v>0?Math.round(v*1e4)/1e4:S.settings.rates[c]; });
+    S.settings.rates=nr;
     S.settings.ratesAt=Date.now(); S.settings.ratesAuto=true;
     save(); if(CUR==='set') render(); if(manual) toast('Kurs yangilandi: 1 $ = '+fmt(S.settings.rates.UZS)+' so‘m');
   }).catch(function(){ if(manual) toast('Kursni olib bo‘lmadi — internetni tekshiring'); })
