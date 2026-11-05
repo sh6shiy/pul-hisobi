@@ -135,6 +135,9 @@ h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;
 .wallet.c-UZS{background:linear-gradient(135deg,#3b82f6,#06b6d4)}
 .wallet.c-USD{background:linear-gradient(135deg,#10b981,#047857)}
 .wallet.c-EGP{background:linear-gradient(135deg,#f59e0b,#c2410c)}
+.wallet.addw{min-width:120px;background:rgba(255,255,255,.55);border:2px dashed rgba(47,124,246,.45);color:var(--acc,#2f7cf6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;font-size:13px;font-weight:600}
+.wallet.addw::before,.wallet.addw::after{display:none}
+.wallet.addw b{font-size:30px;line-height:1;font-weight:500}
 
 /* stats */
 .donutwrap{position:relative;width:180px;height:180px;margin:4px auto 10px}
@@ -694,6 +697,7 @@ function renderHome(){
   var totalUsd=0;
   var wh=S.wallets.map(function(w){ var v=walBalance(w); totalUsd+=v/rate(w.cur);
     return '<div class="wallet c-'+w.cur+'" data-act="editWal" data-id="'+esc(w.id)+'"><div class="wn"><span class="ellip">'+esc(w.name)+'</span><span>'+esc(w.e)+'</span></div><div class="v">'+amt(v,w.cur)+'</div><div class="s">'+(w.cur!=='USD'?'≈ '+money(v/rate(w.cur)):CURS[w.cur].name)+'</div></div>'; }).join('');
+  wh+='<div class="wallet addw" data-act="editWal" data-id=""><b>+</b><span>Hisob / karta qo‘shish</span></div>';
   h+='<h2>Hisoblar · jami ≈ '+money(totalUsd)+'</h2><div class="wallets">'+wh+'</div>';
 
   var recent=sorted(list).slice(0,7);
@@ -1048,7 +1052,8 @@ function editWal(id){
     '<span class="lbl">Boshlang‘ich qoldiq — hisob valyutasida (hozir shu hisobda qancha bor edi)</span><input class="inp" id="wI" inputmode="decimal" value="'+inputVal(w.init,w.cur)+'" placeholder="0">'+
     '<p class="small muted" style="margin:8px 4px">Boshlang‘ich qoldiq kirim/foyda hisobiga qo‘shilmaydi — faqat hisob qoldig‘ini to‘g‘ri ko‘rsatish uchun.</p>'+
     '<button class="btn primary block" style="margin-top:16px" data-act="saveWal" data-id="'+esc(w.id)+'">Saqlash</button>'+
-    (id&&S.wallets.length>1?'<button class="btn danger block" data-act="delWal" data-id="'+esc(id)+'">O‘chirish</button>':''));
+    (id&&isBaseW(id)?'<p class="small muted" style="margin:10px 4px;text-align:center">Bu asosiy hisob — nomi va valyutasini o‘zgartirish mumkin, o‘chirib bo‘lmaydi.</p>':'')+
+    (id&&!isBaseW(id)&&S.wallets.length>1?'<button class="btn danger block" data-act="delWal" data-id="'+esc(id)+'">O‘chirish</button>':''));
   bindAmt($('#wI'));
 }
 function addLimit(){
@@ -1486,7 +1491,19 @@ function updateRates(manual){
 
 /* ---------- Ishga tushirish ---------- */
 var pushLocalToCloud=false;
+/* 3 ta asosiy hisob doim turadi (o'chirib bo'lmaydi); yo'qolgan bo'lsa qayta tiklanadi */
+var BASE_W={w1:{id:'w1',e:'💵',name:'Naqd',init:0,cur:'EGP'},w2:{id:'w2',e:'💳',name:'Karta',init:0,cur:'UZS'},w3:{id:'w3',e:'💲',name:'Dollar',init:0,cur:'USD'}};
+function isBaseW(id){ return !!BASE_W[id]; }
+function ensureBase(){
+  var ch=false;
+  ['w1','w2','w3'].forEach(function(id,k){
+    if(S.wallets.some(function(w){return w.id===id;})) return;
+    S.wallets.splice(Math.min(k,S.wallets.length),0,Object.assign({},BASE_W[id])); ch=true;
+  });
+  return ch;
+}
 function afterOpen(){
+  if(ensureBase()) setTimeout(save,0);
   if(S.settings.lock){ delete S.settings.lock; setTimeout(function(){ toast('🔐 Yangi himoya: Sozlamalar → Xavfsizlik → PIN-kod va shifrlash'); },1500); }
   try{ localStorage.removeItem('ph_lock'); }catch(e){}
   if(pushLocalToCloud){ pushLocalToCloud=false; lastParts=[]; save(); }
