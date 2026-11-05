@@ -538,6 +538,11 @@ function walBalance(w){
   return b;
 }
 function catSpent(id,ym){ var s=0; S.tx.forEach(function(x){ if(x.t==='e'&&x.c===id&&x.d.slice(0,7)===ym) s+=x.u; }); return s; }
+/* limit o'z valyutasida saqlanadi (c.lc), taqqoslash dollarda */
+function limCur(c){ return CURS[c.lc]?c.lc:'USD'; }
+/* shu oy kategoriyadagi chiqim — limit valyutasida (bir xil valyutadagilar aniq summasi bilan) */
+function catSpentL(c,ym){ var k=limCur(c), s=0; S.tx.forEach(function(x){ if(x.t==='e'&&x.c===c.id&&x.d.slice(0,7)===ym) s+=x.cur===k?x.a:x.u*rate(k); }); return Math.round(s*100)/100; }
+function limAmt(c){ return amt(c.limit,limCur(c)); }
 function catsFor(t){
   var since=ymd(addDays(today0(),-120)), cnt={};
   S.tx.forEach(function(x){ if(x.t===t&&x.d>=since) cnt[x.c]=(cnt[x.c]||0)+1; });
@@ -654,7 +659,7 @@ function renderHome(){
   }
   // limit ogohlantirishlari (joriy oy)
   var ymNow=ymOf(today0());
-  var warn=S.cats.filter(function(c){return c.t==='e'&&c.limit>0;}).map(function(c){return {c:c,s:catSpent(c.id,ymNow)};}).filter(function(o){return o.s>=o.c.limit*0.8;});
+  var warn=S.cats.filter(function(c){return c.t==='e'&&c.limit>0;}).map(function(c){return {c:c,s:catSpentL(c,ymNow)};}).filter(function(o){return o.s>=o.c.limit*0.8;});
   if(warn.length) h+='<div class="card small" data-act="tab" data-tab="plans" style="background:linear-gradient(160deg,rgba(255,240,214,.8),rgba(255,255,255,.5))">⚠️ <b>Limitga yaqin:</b> '+warn.map(function(o){ var p=Math.round(o.s/o.c.limit*100); return esc(o.c.e+' '+o.c.name)+' <b class="'+(p>=100?'exp':'')+'">'+p+'%</b>'; }).join(' · ')+'</div>';
 
   if(P.type==='month' && S.settings.budget>0){
@@ -799,12 +804,12 @@ function debtRow(d){
     (paid>0&&!d.closed?'<div class="bar" style="height:5px;margin:6px 0 0"><i style="width:'+pct+'%"></i></div>':'')+'</div></div>';
 }
 function limitRow(c){
-  var s=catSpent(c.id,ymOf(today0())), pct=Math.min(100,s/c.limit*100), p=Math.round(s/c.limit*100);
+  var s=catSpentL(c,ymOf(today0())), L=c.limit, k=limCur(c), pct=Math.min(100,s/L*100), p=Math.round(s/L*100);
   var col=p>=100?'var(--exp)':p>=80?'var(--warn)':'var(--inc)';
   return '<div class="item" data-act="editCat" data-id="'+esc(c.id)+'"><div class="ico" style="background:'+c.col+'26">'+esc(c.e)+'</div><div class="grow">'+
     '<div class="row between"><span class="ellip">'+esc(c.name)+'</span><b class="small" style="color:'+col+'">'+p+'%</b></div>'+
     '<div class="bar" style="margin:6px 0 4px"><i style="width:'+pct+'%;background:'+col+'"></i></div>'+
-    '<div class="small muted">'+money(s)+' / '+money(c.limit)+' · '+(s>c.limit?'<span class="exp">'+money(s-c.limit)+' oshdi</span>':'qoldi '+money(c.limit-s))+'</div></div></div>';
+    '<div class="small muted">'+amt(s,k)+' / '+limAmt(c)+' · '+(s>L?'<span class="exp">'+amt(s-L,k)+' oshdi</span>':'qoldi '+amt(L-s,k))+'</div></div></div>';
 }
 function recRow(r){
   var c=catOf(r.c);
@@ -868,7 +873,7 @@ function renderSet(){
     '</div><button class="btn block" style="margin-top:0" data-act="editWal" data-id="">+ Hisob qo‘shish</button>';
   ['e','i'].forEach(function(t){
     h+='<h2>'+(t==='e'?'Chiqim':'Kirim')+' kategoriyalari</h2><div class="card"><div class="chips">'+
-      S.cats.filter(function(c){return c.t===t;}).map(function(c){ return '<button class="chip" data-act="editCat" data-id="'+esc(c.id)+'">'+esc(c.e+' '+c.name)+(c.limit>0?' · '+money(c.limit):'')+'</button>'; }).join('')+
+      S.cats.filter(function(c){return c.t===t;}).map(function(c){ return '<button class="chip" data-act="editCat" data-id="'+esc(c.id)+'">'+esc(c.e+' '+c.name)+(c.limit>0?' · '+limAmt(c):'')+'</button>'; }).join('')+
       '<button class="chip" style="border-style:dashed" data-act="editCat" data-id="" data-t="'+t+'">+ Yangi</button></div></div>';
   });
   h+='<h2>Ma’lumotlar</h2><div class="card list" style="padding:4px 16px">'+
@@ -995,8 +1000,8 @@ function doOp(o){
 function checkLimit(x){
   if(x.t!=='e') return;
   var c=catOf(x.c); if(!(c.limit>0)) return;
-  var s=catSpent(c.id,x.d.slice(0,7)), p=Math.round(s/c.limit*100);
-  if(p>=80) setTimeout(function(){ hap('warn'); toast((p>=100?'⛔ ':'⚠️ ')+'“'+c.name+'” limiti: '+p+'% ('+money(s)+' / '+money(c.limit)+')'); },1400);
+  var s=catSpentL(c,x.d.slice(0,7)), p=Math.round(s/c.limit*100);
+  if(p>=80) setTimeout(function(){ hap('warn'); toast((p>=100?'⛔ ':'⚠️ ')+'“'+c.name+'” limiti: '+p+'% ('+amt(s,limCur(c))+' / '+limAmt(c)+')'); },1400);
 }
 
 /* ---------- Kategoriya / hisob / limit ---------- */
@@ -1007,7 +1012,7 @@ function editCat(id,t){
   sheet2(id?'Kategoriya':'Yangi kategoriya',
     '<span class="lbl">Belgi (emoji)</span><input class="inp" id="cE" maxlength="4" value="'+esc(c.e)+'" placeholder="🍕">'+
     '<span class="lbl">Nomi</span><input class="inp" id="cN" maxlength="30" value="'+esc(c.name)+'" placeholder="masalan: Benzin">'+
-    (c.t==='e'?'<span class="lbl">Oylik limit, $ (ixtiyoriy)</span><input class="inp" id="cL" inputmode="decimal" value="'+inputVal(c.limit||0,'USD')+'" placeholder="masalan: 100">':'')+
+    (c.t==='e'?'<span class="lbl">Oylik limit (ixtiyoriy)</span>'+curSeg('cLc',limCur(c))+'<input class="inp" id="cL" inputmode="decimal" style="margin-top:8px" value="'+inputVal(c.limit||0,limCur(c))+'" placeholder="masalan: 100">':'')+
     '<span class="lbl">Rang</span><div class="chips" id="cCol">'+PALETTE.map(function(p){return '<button class="chip'+(p===c.col?' on':'')+'" data-act="pickcol" data-c="'+p+'" style="width:34px;height:34px;padding:0;background:'+p+';border:3px solid '+(p===c.col?'var(--text)':'transparent')+'"></button>';}).join('')+'</div>'+
     '<button class="btn primary block" style="margin-top:22px" data-act="saveCat" data-id="'+esc(c.id)+'" data-t="'+c.t+'">Saqlash</button>'+
     (id&&!fixed?'<button class="btn danger block" data-act="delCat" data-id="'+esc(id)+'">O‘chirish'+(used?' ('+used+' ta yozuv “Boshqa”ga o‘tadi)':'')+'</button>':''));
@@ -1031,7 +1036,8 @@ function addLimit(){
   if(!free.length){ toast('Barcha kategoriyalarga limit qo‘yilgan'); return; }
   sheet2('Limit qo‘shish',
     '<span class="lbl">Kategoriya</span><select class="inp" id="lC">'+free.map(function(c){return '<option value="'+esc(c.id)+'">'+esc(c.e+' '+c.name)+'</option>';}).join('')+'</select>'+
-    '<span class="lbl">Oylik limit, $</span><input class="inp" id="lA" inputmode="decimal" placeholder="masalan: 100">'+
+    '<span class="lbl">Limit valyutasi</span>'+curSeg('lCur','USD')+
+    '<span class="lbl">Oylik limit</span><input class="inp" id="lA" inputmode="decimal" placeholder="masalan: 100">'+
     '<p class="small muted" style="margin:8px 4px">Chiqim limitning 80% iga yetganda va oshganda ogohlantiradi.</p>'+
     '<button class="btn primary block" style="margin-top:16px" data-act="saveLimit">Saqlash</button>');
   bindAmt($('#lA'));
@@ -1329,7 +1335,7 @@ var A={
   delGoal:function(el){ ask('Maqsadni o‘chirasizmi?').then(function(ok){ if(!ok) return; S.goals=S.goals.filter(function(g){return g.id!==el.dataset.id;}); save(); closeTop(); render(); }); },
   /* limitlar */
   addLimit:function(){ addLimit(); },
-  saveLimit:function(){ var c=catOf($('#lC').value), a=amountOf($('#lA').value); if(!(a>0)){ toast('Limitni kiriting'); return; } c.limit=a; save(); closeTop(); render(); hap('ok'); toast('Limit saqlandi'); },
+  saveLimit:function(){ var c=catOf($('#lC').value), a=amountOf($('#lA').value); if(!(a>0)){ toast('Limitni kiriting'); return; } c.limit=a; c.lc=$('#lCur').dataset.v||'USD'; save(); closeTop(); render(); hap('ok'); toast('Limit saqlandi'); },
   /* sozlamalar */
   pinOn:function(){
     if(!(window.crypto&&crypto.subtle)){ toast('Bu qurilmada shifrlash qo‘llab-quvvatlanmaydi'); return; }
@@ -1351,10 +1357,10 @@ var A={
   editCat:function(el){ editCat(el.dataset.id,el.dataset.t); },
   pickcol:function(el){ var box=$('#cCol'); box.dataset.v=el.dataset.c; box.querySelectorAll('button').forEach(function(b){ var on=b===el; b.classList.toggle('on',on); b.style.borderColor=on?'var(--text)':'transparent'; }); hap(); },
   saveCat:function(el){
-    var name=$('#cN').value.trim(), e=$('#cE').value.trim()||'🏷', col=$('#cCol').dataset.v, id=el.dataset.id, lim=$('#cL')?amountOf($('#cL').value)||0:0;
+    var name=$('#cN').value.trim(), e=$('#cE').value.trim()||'🏷', col=$('#cCol').dataset.v, id=el.dataset.id, lim=$('#cL')?amountOf($('#cL').value)||0:0, lc=$('#cLc')?($('#cLc').dataset.v||'USD'):'USD';
     if(!name){ toast('Nomini kiriting'); return; }
-    if(id){ S.cats.forEach(function(c){ if(c.id===id){ c.name=name; c.e=e; c.col=col; if(c.t==='e') c.limit=lim; } }); }
-    else { var nc={id:'c'+uid(),t:el.dataset.t,e:e,name:name,col:col}; if(nc.t==='e'&&lim>0) nc.limit=lim; var oi=-1;
+    if(id){ S.cats.forEach(function(c){ if(c.id===id){ c.name=name; c.e=e; c.col=col; if(c.t==='e'){ c.limit=lim; c.lc=lc; } } }); }
+    else { var nc={id:'c'+uid(),t:el.dataset.t,e:e,name:name,col:col}; if(nc.t==='e'&&lim>0){ nc.limit=lim; nc.lc=lc; } var oi=-1;
       S.cats.forEach(function(c,i){ if(c.id===nc.t+'_other') oi=i; }); if(oi>=0) S.cats.splice(oi,0,nc); else S.cats.push(nc); }
     save(); closeTop(); render(); hap('ok'); toast('Kategoriya saqlandi');
   },
