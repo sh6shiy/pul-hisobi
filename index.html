@@ -919,7 +919,7 @@ function renderSet(){
     '<div class="item" data-act="restore"><div class="ico" style="background:rgba(255,255,255,.6)">♻️</div><div class="grow">Zaxiradan tiklash</div><span class="muted">›</span></div>'+
     '<div class="item" data-act="csv"><div class="ico" style="background:rgba(255,255,255,.6)">📄</div><div class="grow">CSV (Excel uchun) nusxa</div><span class="muted">›</span></div>'+
     '<div class="item" data-act="wipe"><div class="ico" style="background:rgba(255,255,255,.6)">🗑</div><div class="grow exp">Barcha ma’lumotlarni o‘chirish</div></div>'+
-  '</div><p class="small muted" style="text-align:center">Yozuvlar: '+S.tx.length+' · Pul hisobi v2.0</p>';
+  '</div><p class="small muted" style="text-align:center">Yozuvlar: '+S.tx.length+' · Pul hisobi v2.1</p>';
   $('#view').innerHTML=h;
   ['UZS','EGP'].concat(S.settings.xc||[]).forEach(function(c){ var el=$('#r'+c); if(!el) return; bindAmt(el);
     el.addEventListener('change',function(){ var v=parseAmt(el.value); if(v>0){ S.settings.rates[c]=v; S.settings.ratesAuto=false; save(); render(); toast('Kurs saqlandi (avtomatik yangilash o‘chirildi)'); } }); });
