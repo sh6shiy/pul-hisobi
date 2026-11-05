@@ -945,6 +945,12 @@ var SEGCB={
 
 /* ---------- Yozuv formasi ---------- */
 var F={};
+function walForCur(cur){
+  var lw=(S.settings.lastWc||{})[cur], w=byId(S.wallets,lw);
+  if(w && w.cur===cur) return w.id;
+  for(var i=0;i<S.wallets.length;i++) if(S.wallets[i].cur===cur) return S.wallets[i].id;
+  return null;
+}
 function openTx(id,t){
   var x=id?byId(S.tx,id):null;
   var w0=byId(S.wallets,S.settings.lastW)?S.settings.lastW:S.wallets[0].id;
@@ -1280,7 +1286,10 @@ var A={
   fcat:function(el){ F.c=el.dataset.id; drawForm(); hap(); },
   fwal:function(el){ F.w=el.dataset.id; if(F.t==='x'){ F.a2manual=false; if(F.w2===F.w) F.w2=otherWallet(F.w); } else if(!F.id) F.cur=walOf(F.w).cur; drawForm(); hap(); },
   fwal2:function(el){ F.w2=el.dataset.id; F.a2manual=false; drawForm(); hap(); },
-  fcur:function(el){ F.cur=el.dataset.c; drawForm(); hap(); },
+  fcur:function(el){ F.cur=el.dataset.c;
+    /* valyuta tanlansa — o'sha valyutadagi hisob avtomatik tanlanadi */
+    if(F.t!=='x' && walOf(F.w).cur!==F.cur){ var m=walForCur(F.cur); if(m) F.w=m; else toast(CURS[F.cur].name+' hisobi yo‘q — “+ Hisob qo‘shish” orqali oching'); }
+    drawForm(); hap(); },
   fdate:function(el){ F.d=ymd(addDays(today0(),+el.dataset.o)); drawForm(); hap(); },
   frep:function(){ F.rep=!F.rep; drawForm(); hap(); },
   saveTx:function(){
@@ -1300,6 +1309,7 @@ var A={
     if(F.id){ S.tx=S.tx.map(function(x){return x.id===F.id?rec:x;}); } else S.tx.push(rec);
     if(F.rep && !F.id && F.t!=='x'){ var dd=parseYmd(F.d); S.rec.push({id:uid(),t:F.t,a:a,cur:F.cur,c:F.c,w:F.w,n:rec.n,day:dd.getDate(),last:ymOf(dd),auto:false}); }
     S.settings.lastW=F.w;
+    if(walOf(F.w).cur===F.cur){ S.settings.lastWc=S.settings.lastWc||{}; S.settings.lastWc[F.cur]=F.w; }
     save(); closeTop(); render(); hap('ok');
     toast(F.id?'O‘zgartirildi':(F.t==='i'?'Kirim':F.t==='x'?'O‘tkazma':'Chiqim')+' qo‘shildi: '+amt(a,F.cur)+(F.rep?' · har oy takrorlanadi':''));
     checkLimit(rec);
