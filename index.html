@@ -184,8 +184,19 @@ textarea.inp{min-height:140px;font-size:13px;font-family:ui-monospace,Menlo,mono
 #toast.show{opacity:1;transform:translateX(-50%)}
 #loading,#lock{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--hint);background:linear-gradient(180deg,#eaf5ff,#d6e9ff)}
 #loading{z-index:60}
-#lock{z-index:100;text-align:center;padding:24px}
-#lock .e{font-size:56px}
+#lock{z-index:100;text-align:center;padding:24px;gap:10px}
+#lock .e{font-size:48px}
+#lockTitle{color:var(--text);font-size:19px}
+#lockMsg{min-height:20px;font-size:14px}
+#lockMsg.err{color:var(--exp)}
+.dots{display:flex;gap:10px;min-height:14px;margin:6px 0 10px}
+.dots i{width:13px;height:13px;border-radius:50%;background:var(--accent);box-shadow:0 2px 6px rgba(47,124,246,.4)}
+.dots i.ph{background:rgba(47,124,246,.18);box-shadow:none}
+.pad{display:grid;grid-template-columns:repeat(3,72px);gap:14px;justify-content:center}
+.pad button{width:72px;height:72px;border-radius:50%;font-size:27px;font-weight:500;color:var(--text);background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.95);box-shadow:0 4px 14px rgba(40,90,160,.1);-webkit-user-select:none;user-select:none}
+.pad button.t{background:none;border:0;box-shadow:none;font-size:15px;color:var(--accent)}
+.pad button:active{transform:scale(.94)}
+.lockbtns{display:flex;gap:12px;margin-top:14px;width:100%;max-width:300px}
 #loading.hide,#lock.hide{display:none}
 .spin{width:28px;height:28px;border:3px solid var(--sep);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -209,7 +220,19 @@ textarea.inp{min-height:140px;font-size:13px;font-family:ui-monospace,Menlo,mono
 </head>
 <body>
 <div id="loading" class="hide"><div class="spin"></div><div>Ma’lumotlar yuklanmoqda…</div></div>
-<div id="lock" class="hide"><div class="e">🔒</div><b style="color:var(--text);font-size:18px">Pul hisobi qulflangan</b><div id="lockMsg">Ochish uchun Face ID’dan foydalaning</div><button class="btn primary" style="flex:none;padding:14px 28px" data-act="unlock">Ochish</button></div>
+<div id="lock" class="hide">
+  <div class="e" id="lockIcon">🔒</div>
+  <b id="lockTitle">Pul hisobi qulflangan</b>
+  <div id="lockMsg">PIN-kodni kiriting</div>
+  <div class="dots" id="pinDots"></div>
+  <div class="pad" id="pad">
+    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+    <button class="t" data-k="bio" id="padBio">Face ID</button><button data-k="0">0</button><button class="t" data-k="back">⌫</button>
+  </div>
+  <div class="lockbtns"><button class="btn" id="pinCancel" data-k="cancel">Bekor</button><button class="btn primary" data-k="ok">Tasdiqlash</button></div>
+</div>
 <main id="view"></main>
 
 <nav class="tabs" id="tabs">
@@ -364,7 +387,7 @@ function toast(m){ var t=$('#toast'); t.textContent=m; t.classList.add('show'); 
 var DEF_RATES={UZS:11920,EGP:54.77};
 function defaults(){
   return {
-    settings:{budget:0,lastW:'w1',rates:{UZS:DEF_RATES.UZS,EGP:DEF_RATES.EGP},ratesAt:0,ratesAuto:true,lock:false},
+    settings:{budget:0,lastW:'w1',rates:{UZS:DEF_RATES.UZS,EGP:DEF_RATES.EGP},ratesAt:0,ratesAuto:true},
     cats:[
       {id:'food',t:'e',e:'🛒',name:'Oziq-ovqat',col:PALETTE[0]},
       {id:'cafe',t:'e',e:'🍽',name:'Kafe / restoran',col:PALETTE[1]},
@@ -422,8 +445,29 @@ function deser(str){
   return st;
 }
 var LS_KEY='pulhisobi_v1';
-var S;
-try{ var l=localStorage.getItem(LS_KEY); S=l?deser(l):defaults(); }catch(e){ S=defaults(); }
+var S=defaults();
+var LOCAL_RAW=null; try{ LOCAL_RAW=localStorage.getItem(LS_KEY); }catch(e){}
+
+/* ---------- Shifrlash (AES-GCM 256, kalit PIN-koddan PBKDF2 bilan olinadi) ----------
+   PIN yoqilgan bo'lsa Telegram bulutida ham, telefonda ham faqat shifrlangan matn saqlanadi. */
+var CRYPTO=null;      // {key, salt}
+var ENC_BLOB=null;    // oxirgi shifrlangan nusxa
+var LOCKED=false;     // ma'lumot hali ochilmagan — saqlash taqiqlanadi
+var KDF_ITER=250000;
+function b64(u8){ var s=''; for(var i=0;i<u8.length;i++) s+=String.fromCharCode(u8[i]); return btoa(s); }
+function ub64(s){ var b=atob(s), u=new Uint8Array(b.length); for(var i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u; }
+function isEnc(s){ return typeof s==='string' && s.indexOf('ENC1:')===0; }
+function encParts(s){ var p=s.split(':'); return {salt:ub64(p[1]),iv:ub64(p[2]),ct:ub64(p[3])}; }
+function deriveKey(pin,salt){
+  return crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveKey']).then(function(k){
+    return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:KDF_ITER,hash:'SHA-256'},k,{name:'AES-GCM',length:256},true,['encrypt','decrypt']); });
+}
+function encryptStr(plain){
+  var iv=crypto.getRandomValues(new Uint8Array(12));
+  return crypto.subtle.encrypt({name:'AES-GCM',iv:iv},CRYPTO.key,new TextEncoder().encode(plain)).then(function(ct){
+    return 'ENC1:'+b64(CRYPTO.salt)+':'+b64(iv)+':'+b64(new Uint8Array(ct)); });
+}
+function decryptStr(key,s){ var e=encParts(s); return crypto.subtle.decrypt({name:'AES-GCM',iv:e.iv},key,e.ct).then(function(b){ return new TextDecoder().decode(b); }); }
 
 /* Telegram CloudStorage — 4096 belgilik bo'laklarga bo'lib saqlanadi */
 var CHUNK=3800, cloudN=0, lastParts=[], saving=false, again=false, syncState=hasCloud?'load':'local';
@@ -432,16 +476,22 @@ var cs={
   set:function(k,v){return new Promise(function(r,j){tg.CloudStorage.setItem(k,v,function(e,ok){e?j(e):r(ok);});});},
   rm:function(keys){return new Promise(function(r,j){tg.CloudStorage.removeItems(keys,function(e,ok){e?j(e):r(ok);});});}
 };
-var saveT;
+function payload(){ return CRYPTO?encryptStr(serialize()):Promise.resolve(asciiJson()); }
 function save(){
-  try{ localStorage.setItem(LS_KEY, serialize()); localStorage.setItem('ph_lock', S.settings.lock?'1':'0'); }catch(e){}
-  clearTimeout(saveT); saveT=setTimeout(persist,350);
+  if(LOCKED) return;   // qulf ochilmaguncha hech narsa yozilmaydi
+  payload().then(function(p){
+    try{ localStorage.setItem(LS_KEY,p); }catch(e){}
+    if(CRYPTO) ENC_BLOB=p;
+    persist(p);
+  });
 }
-function persist(){
+var pendingStr=null;
+function persist(str){
   if(!hasCloud) return;
-  if(saving){ again=true; return; }
-  saving=true;
-  var str=asciiJson(), parts=[];
+  if(str) pendingStr=str;
+  if(saving || !pendingStr) return;
+  saving=true; str=pendingStr; pendingStr=null;
+  var parts=[];
   for(var i=0;i<str.length;i+=CHUNK) parts.push(str.slice(i,i+CHUNK));
   var p=Promise.resolve();
   parts.forEach(function(pt,i){ if(lastParts[i]!==pt) p=p.then(function(){return cs.set('d'+i,pt);}); });
@@ -449,7 +499,7 @@ function persist(){
    .then(function(){ if(cloudN>parts.length){ var rm=[]; for(var i=parts.length;i<cloudN;i++) rm.push('d'+i); return cs.rm(rm);} })
    .then(function(){ cloudN=parts.length; lastParts=parts; syncState='ok'; })
    .catch(function(){ syncState='err'; lastParts=[]; })
-   .then(function(){ saving=false; if(CUR==='set') render(); if(again){ again=false; persist(); } });
+   .then(function(){ saving=false; if(CUR==='set'&&!LOCKED) render(); if(pendingStr) persist(); });
 }
 function loadCloud(){
   return cs.get(['n']).then(function(r){
@@ -791,8 +841,16 @@ function renderSet(){
     : syncState==='err' ? '⚠️ Bulutga saqlashda xato. Internetni tekshiring — keyingi o‘zgarishda qayta urinadi'
     : '⏳ Sinxronlanmoqda…';
   var h='<div class="card small">'+sync+'</div>';
-  h+='<h2>Xavfsizlik</h2><div class="card"><div class="row between"><span class="grow">🔒 Face ID / Touch ID bilan qulflash<div class="small muted">Ilova ochilganda yuzingiz yoki barmog‘ingiz so‘raladi</div></span>'+
-    '<button class="chip'+(S.settings.lock?' on':'')+'" data-act="lockT">'+(S.settings.lock?'Yoqilgan':'O‘chirilgan')+'</button></div></div>';
+  h+='<h2>Xavfsizlik</h2><div class="card">';
+  if(!CRYPTO){
+    h+='<div class="row between"><span class="grow">🔐 PIN-kod va shifrlash<div class="small muted">O‘chiq. Yoqsangiz, ma’lumotlar shifrlanadi va ilova faqat PIN-kod bilan ochiladi.</div></span>'+
+      '<button class="chip" data-act="pinOn">Yoqish</button></div>';
+  } else {
+    h+='<div class="row between"><span class="grow">🔐 PIN-kod va shifrlash<div class="small muted">Yoqilgan · AES-256. Telegram bulutida faqat shifrlangan matn saqlanadi.</div></span><span class="badge green">✓</span></div>'+
+      (BIO_OK?'<div class="row between" style="margin-top:14px"><span class="grow">Face ID bilan ochish<div class="small muted">Shu telefonda PIN o‘rniga</div></span><button class="chip'+(bioSaved()?' on':'')+'" data-act="bioT">'+(bioSaved()?'Yoqilgan':'O‘chirilgan')+'</button></div>':'')+
+      '<div class="row" style="margin-top:14px"><button class="btn sm" style="flex:1" data-act="pinChange">PIN-ni o‘zgartirish</button><button class="btn sm danger" style="flex:1" data-act="pinOff">O‘chirish</button></div>';
+  }
+  h+='</div>';
   h+='<h2>Asosiy</h2><div class="card">'+
     '<span class="lbl" style="margin-top:0">Oylik chiqim byudjeti, $ (0 — o‘chirilgan)</span><input class="inp" id="setBudget" inputmode="decimal" value="'+inputVal(S.settings.budget,'USD')+'" placeholder="masalan: 500">'+
   '</div>';
@@ -1060,24 +1118,99 @@ function goalView(id){
   bindAmt($('#gA'));
 }
 
-/* ---------- Face ID qulfi (Telegram BiometricManager) ---------- */
-var unlocked=false;
+/* ---------- Face ID (Telegram BiometricManager) — shifrlash kalitini qurilmada saqlaydi ---------- */
+var BIO_OK=false;
 function bioMgr(){ return inTG && ver('7.2') && tg.BiometricManager ? tg.BiometricManager : null; }
-function bioInit(cb){ var bm=bioMgr(); if(!bm) return cb(false); if(bm.isInited) return cb(bm.isBiometricAvailable); bm.init(function(){ cb(bm.isBiometricAvailable); }); }
-function bioAuth(cb){
-  var bm=bioMgr(); if(!bm) return cb(false);
-  var go=function(){ bm.authenticate({reason:'Pul hisobini ochish'},function(ok){ cb(!!ok); }); };
-  if(!bm.isAccessGranted) bm.requestAccess({reason:'Hisobingizni Face ID bilan himoyalash uchun'},function(g){ if(g) go(); else cb(false); });
-  else go();
-}
-function showLock(){ if(unlocked || !inTG) return; $('#lock').classList.remove('hide'); tryUnlock(); }
-function tryUnlock(){
-  bioInit(function(av){
-    if(!av){ unlock(); return; }   // bu qurilmada biometriya yo'q (masalan, kompyuter) — ochamiz
-    bioAuth(function(ok){ if(ok) unlock(); else { $('#lockMsg').textContent='Tasdiqlanmadi. “Ochish” tugmasini bosib qayta urinib ko‘ring.'; hap('err'); } });
+function bioInit(cb){ var bm=bioMgr(); if(!bm) return cb(false); if(bm.isInited){ BIO_OK=bm.isBiometricAvailable; return cb(BIO_OK); } bm.init(function(){ BIO_OK=bm.isBiometricAvailable; cb(BIO_OK); }); }
+function bioSaved(){ var bm=bioMgr(); return !!(bm && bm.isInited && bm.isBiometricTokenSaved); }
+function bioGetKey(cb){
+  var bm=bioMgr(); if(!bm || !bm.isBiometricTokenSaved) return cb(null);
+  bm.authenticate({reason:'Pul hisobini ochish'},function(ok,token){
+    if(!ok || !token) return cb(null);
+    crypto.subtle.importKey('raw',ub64(token),{name:'AES-GCM'},true,['encrypt','decrypt']).then(cb,function(){ cb(null); });
   });
 }
-function unlock(){ unlocked=true; $('#lock').classList.add('hide'); }
+function bioStoreKey(cb){
+  var bm=bioMgr(); if(!bm || !CRYPTO) return cb(false);
+  var go=function(){ crypto.subtle.exportKey('raw',CRYPTO.key).then(function(raw){
+    bm.authenticate({reason:'Face ID bilan ochishni yoqish'},function(ok){ if(!ok) return cb(false); bm.updateBiometricToken(b64(new Uint8Array(raw)),function(r){ cb(!!r); }); }); }); };
+  if(!bm.isAccessGranted) bm.requestAccess({reason:'Pul hisobini Face ID bilan ochish uchun'},function(g){ if(g) go(); else cb(false); });
+  else go();
+}
+function bioClear(){ var bm=bioMgr(); if(bm && bm.isBiometricTokenSaved) bm.updateBiometricToken('',function(){}); }
+
+/* ---------- PIN ekran ----------
+   rejimlar: unlock (ochish), set1/set2 (yangi PIN), verify (amal oldidan tekshirish) */
+var PIN={mode:'unlock',buf:'',first:'',onOk:null,busy:false};
+var PIN_MIN=6, PIN_MAX=12;
+function lockShow(mode,opts){
+  opts=opts||{};
+  PIN={mode:mode,buf:'',first:'',onOk:opts.onOk||null,busy:false};
+  $('#lockIcon').textContent=mode==='unlock'?'🔒':'🔐';
+  $('#lockTitle').textContent=opts.title||(mode==='unlock'?'Pul hisobi qulflangan':'PIN-kod');
+  lockMsg(opts.msg||(mode==='set1'?'Yangi PIN-kod o‘ylab toping (kamida 6 raqam)':'PIN-kodni kiriting'));
+  $('#pinCancel').style.display=mode==='unlock'?'none':'';
+  $('#padBio').style.visibility=(mode==='unlock'&&bioSaved())?'visible':'hidden';
+  drawDots();
+  $('#lock').classList.remove('hide');
+  if(mode==='unlock' && bioSaved()) setTimeout(tryBio,250);
+}
+function lockHide(){ $('#lock').classList.add('hide'); PIN.buf=''; }
+function lockMsg(t,err){ var m=$('#lockMsg'); m.textContent=t; m.classList.toggle('err',!!err); }
+function drawDots(){ var n=Math.max(PIN_MIN,PIN.buf.length), h=''; for(var i=0;i<n;i++) h+='<i class="'+(i<PIN.buf.length?'':'ph')+'"></i>'; $('#pinDots').innerHTML=h; }
+function failWait(){ try{ var u=+localStorage.getItem('ph_until')||0; return Math.max(0,Math.ceil((u-Date.now())/1000)); }catch(e){ return 0; } }
+function failAdd(){ try{ var f=(+localStorage.getItem('ph_fail')||0)+1; localStorage.setItem('ph_fail',f); if(f>=5) localStorage.setItem('ph_until',Date.now()+30000*Math.pow(2,Math.min(f-5,6))); }catch(e){} }
+function failReset(){ try{ localStorage.removeItem('ph_fail'); localStorage.removeItem('ph_until'); }catch(e){} }
+function openWithKey(key,salt){
+  return decryptStr(key,ENC_BLOB).then(function(plain){
+    var first=LOCKED;
+    if(first) S=deser(plain);
+    CRYPTO={key:key,salt:salt}; LOCKED=false; failReset(); lockHide(); hap('ok');
+    if(first) afterOpen();
+  });
+}
+function tryBio(){
+  bioGetKey(function(key){ if(!key) return; openWithKey(key,encParts(ENC_BLOB).salt).catch(function(){ lockMsg('Face ID kaliti eskirgan — PIN-kodni kiriting',true); bioClear(); }); });
+}
+function pinSubmit(){
+  if(PIN.busy) return;
+  var pin=PIN.buf;
+  if(pin.length<PIN_MIN){ lockMsg('Kamida '+PIN_MIN+' ta raqam kiriting',true); hap('err'); return; }
+  if(PIN.mode==='set1'){ PIN.first=pin; PIN.buf=''; PIN.mode='set2'; lockMsg('PIN-kodni yana bir marta kiriting'); drawDots(); return; }
+  if(PIN.mode==='set2'){
+    if(pin!==PIN.first){ PIN.mode='set1'; PIN.buf=''; PIN.first=''; drawDots(); lockMsg('Mos kelmadi. Qaytadan o‘ylab toping',true); hap('err'); return; }
+    PIN.busy=true; lockMsg('Shifrlanmoqda…');
+    var salt=crypto.getRandomValues(new Uint8Array(16));
+    deriveKey(pin,salt).then(function(key){ var cb=PIN.onOk; CRYPTO={key:key,salt:salt}; lockHide(); save(); if(cb) cb(); });
+    return;
+  }
+  var w=failWait(); if(w>0){ lockMsg('Juda ko‘p xato. '+w+' soniyadan keyin urinib ko‘ring',true); return; }
+  PIN.busy=true; lockMsg('Tekshirilmoqda…');
+  var salt2=encParts(ENC_BLOB).salt;
+  deriveKey(pin,salt2).then(function(key){
+    if(PIN.mode==='verify'){ return decryptStr(key,ENC_BLOB).then(function(){ var cb=PIN.onOk; failReset(); lockHide(); if(cb) cb(); }); }
+    return openWithKey(key,salt2);
+  }).catch(function(){ PIN.busy=false; PIN.buf=''; drawDots(); failAdd(); hap('err'); var w2=failWait(); lockMsg(w2?'Noto‘g‘ri PIN. '+w2+' soniya kuting':'Noto‘g‘ri PIN-kod',true); });
+}
+(function(){
+  var pad=$('#lock');
+  function h(e){ var b=e.target.closest('[data-k]'); if(!b) return; e.preventDefault(); var k=b.dataset.k;
+    if(k==='back') PIN.buf=PIN.buf.slice(0,-1);
+    else if(k==='ok') return pinSubmit();
+    else if(k==='bio') return tryBio();
+    else if(k==='cancel'){ lockHide(); return; }
+    else if(PIN.buf.length<PIN_MAX) PIN.buf+=k;
+    if(PIN.mode!=='unlock'||!PIN.busy) lockMsg(PIN.mode==='set2'?'PIN-kodni yana bir marta kiriting':PIN.mode==='set1'?'Yangi PIN-kod o‘ylab toping (kamida 6 raqam)':'PIN-kodni kiriting');
+    drawDots(); hap(); }
+  pad.addEventListener('touchstart',h,{passive:false}); pad.addEventListener('mousedown',h);
+})();
+/* ilova orqa fonda 1 daqiqadan ko'p tursa — qayta qulflanadi */
+var bgAt=0;
+if(inTG && ver('8.0')){
+  tg.onEvent('deactivated',function(){ bgAt=Date.now(); });
+  tg.onEvent('activated',function(){ if(CRYPTO && !LOCKED && bgAt && Date.now()-bgAt>60000){ closeAllSheets(); lockShow('verify',{title:'Pul hisobi qulflangan',msg:'PIN-kodni kiriting'}); $('#pinCancel').style.display='none'; $('#padBio').style.visibility=bioSaved()?'visible':'hidden'; PIN.onOk=null; if(bioSaved()) setTimeout(tryBio,250); } });
+}
+function closeAllSheets(){ while(stack.length) closeTop(); }
 
 /* ---------- Eksport ---------- */
 function copyText(txt){
@@ -1105,7 +1238,6 @@ var A={
   add:function(el){ openTx(null,el.dataset.t); },
   edit:function(el){ openTx(el.dataset.id); },
   close:function(){ closeTop(); },
-  unlock:function(){ tryUnlock(); },
   segpick:function(el){ var box=el.parentNode; box.dataset.v=el.dataset.v; box.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on',b===el); }); hap(); if(box.dataset.cb&&SEGCB[box.dataset.cb]) SEGCB[box.dataset.cb](el.dataset.v); },
   chipT:function(el){ var on=!el.classList.contains('on'); el.classList.toggle('on',on); el.textContent=on?'Yoqilgan':'O‘chirilgan'; hap(); },
   /* yozuv formasi */
@@ -1199,12 +1331,20 @@ var A={
   addLimit:function(){ addLimit(); },
   saveLimit:function(){ var c=catOf($('#lC').value), a=amountOf($('#lA').value); if(!(a>0)){ toast('Limitni kiriting'); return; } c.limit=a; save(); closeTop(); render(); hap('ok'); toast('Limit saqlandi'); },
   /* sozlamalar */
-  lockT:function(){
-    if(S.settings.lock){ S.settings.lock=false; save(); render(); toast('Qulf o‘chirildi'); return; }
-    bioInit(function(av){
-      if(!av){ hap('err'); toast('Bu qurilmada Face ID / Touch ID mavjud emas (yoki Telegram yangilanishi kerak)'); return; }
-      bioAuth(function(ok){ if(!ok){ toast('Ruxsat berilmadi'); return; } S.settings.lock=true; unlocked=true; save(); render(); hap('ok'); toast('🔒 Qulf yoqildi'); });
-    });
+  pinOn:function(){
+    if(!(window.crypto&&crypto.subtle)){ toast('Bu qurilmada shifrlash qo‘llab-quvvatlanmaydi'); return; }
+    ask('PIN-kodni unutsangiz, ma’lumotlarni HECH KIM tiklay olmaydi. Avval “Zaxira nusxa” olib qo‘yish tavsiya etiladi. Davom etasizmi?').then(function(ok){ if(!ok) return;
+      lockShow('set1',{title:'Yangi PIN-kod',onOk:function(){ render(); hap('ok'); toast('🔐 Shifrlash yoqildi');
+        if(BIO_OK) setTimeout(function(){ ask('Shu telefonda Face ID bilan ochishni ham yoqaymi?').then(function(y){ if(y) bioStoreKey(function(r){ render(); toast(r?'Face ID yoqildi':'Face ID yoqilmadi'); }); }); },600); }}); });
+  },
+  pinChange:function(){ lockShow('verify',{title:'Joriy PIN-kod',onOk:function(){
+    var hadBio=bioSaved();
+    lockShow('set1',{title:'Yangi PIN-kod',onOk:function(){ render(); toast('PIN-kod o‘zgartirildi'); if(hadBio) bioStoreKey(function(){ render(); }); }}); }}); },
+  pinOff:function(){ lockShow('verify',{title:'Joriy PIN-kod',msg:'O‘chirish uchun PIN-kodni kiriting',onOk:function(){
+    CRYPTO=null; ENC_BLOB=null; bioClear(); save(); render(); toast('Shifrlash o‘chirildi'); }}); },
+  bioT:function(){
+    if(bioSaved()){ bioClear(); setTimeout(render,300); toast('Face ID o‘chirildi'); return; }
+    bioStoreKey(function(r){ render(); toast(r?'Face ID yoqildi':'Face ID yoqilmadi'); });
   },
   rauto:function(){ S.settings.ratesAuto=!S.settings.ratesAuto; save(); render(); if(S.settings.ratesAuto) updateRates(true); },
   rnow:function(){ updateRates(true); },
@@ -1275,22 +1415,33 @@ function updateRates(manual){
 }
 
 /* ---------- Ishga tushirish ---------- */
-var lsLock=false; try{ lsLock=localStorage.getItem('ph_lock')==='1'; }catch(e){}
-if(lsLock || S.settings.lock) showLock();
-processAutoRec();
-render(true);
+var pushLocalToCloud=false;
+function afterOpen(){
+  if(S.settings.lock){ delete S.settings.lock; setTimeout(function(){ toast('🔐 Yangi himoya: Sozlamalar → Xavfsizlik → PIN-kod va shifrlash'); },1500); }
+  try{ localStorage.removeItem('ph_lock'); }catch(e){}
+  if(pushLocalToCloud){ pushLocalToCloud=false; lastParts=[]; save(); }
+  processAutoRec(); lastHero=null; render(true); updateRates();
+}
+function startWith(raw){
+  if(isEnc(raw)){
+    ENC_BLOB=raw; LOCKED=true; S=defaults();
+    bioInit(function(){ lockShow('unlock'); });
+    return;
+  }
+  try{ S=raw?deser(raw):defaults(); }catch(e){ S=defaults(); }
+  afterOpen();
+}
+bioInit(function(){});
 if(hasCloud){
   $('#loading').classList.remove('hide');
-  var done=false, fin=function(){ if(done) return; done=true; $('#loading').classList.add('hide'); };
-  setTimeout(fin,7000);
+  var started=false, go=function(raw){ if(started) return; started=true; $('#loading').classList.add('hide'); startWith(raw); };
+  setTimeout(function(){ if(!started){ syncState='err'; go(LOCAL_RAW); } },8000);
   loadCloud().then(function(str){
-    if(str){ S=deser(str); try{ localStorage.setItem(LS_KEY,serialize()); localStorage.setItem('ph_lock',S.settings.lock?'1':'0'); }catch(e){} }
-    else { lastParts=[]; persist(); }
-    syncState='ok'; fin();
-    if(S.settings.lock) showLock();
-    processAutoRec(); lastHero=null; render(true); updateRates();
-  }).catch(function(){ syncState='err'; render(); fin(); toast('Bulutdan yuklab bo‘lmadi — mahalliy nusxa ko‘rsatilmoqda'); });
-} else updateRates();
+    syncState='ok';
+    if(!str && LOCAL_RAW) pushLocalToCloud=true;
+    go(str||LOCAL_RAW);
+  }).catch(function(){ syncState='err'; go(LOCAL_RAW); if(!LOCKED) toast('Bulutdan yuklab bo‘lmadi — mahalliy nusxa ko‘rsatilmoqda'); });
+} else startWith(LOCAL_RAW);
 })();
 </script>
 </body>
