@@ -278,7 +278,7 @@ textarea.inp{min-height:140px;font-size:13px;font-family:ui-monospace,Menlo,mono
     <button class="n" data-act="fcur" data-c="UZS">so‘m</button>
     <button class="n" data-act="fcur" data-c="USD">$ dollar</button>
     <button class="n" data-act="fcur" data-c="EGP">junayh</button>
-  </div></div>
+  </div><div class="chips" id="txWalSub" style="margin-top:8px"></div></div>
   <div class="small muted" id="txConv" style="margin:8px 4px 0;min-height:18px"></div>
   <div id="catWrap"><span class="lbl">Kategoriya</span><div class="chips" id="txCats"></div></div>
   <span class="lbl" id="walLbl">Hisob</span>
@@ -1008,6 +1008,13 @@ function drawForm(){
   $('#catWrap').style.display=X?'none':'';
   $('#toWrap').style.display=X?'':'none';
   $('#walLbl').textContent=X?'Qayerdan':'Hisob';
+  /* kirim/chiqimda hisob valyuta orqali tanlanadi — pastdagi alohida tanlov yashiriladi.
+     Bir valyutada bir nechta hisob bo'lsa, valyuta ostida faqat o'shalar chiqadi. */
+  $('#walLbl').style.display=X?'':'none'; $('#txWal').style.display=X?'':'none';
+  var sub=$('#txWalSub'), same=S.wallets.filter(function(w){ return w.cur===F.cur; });
+  if(X || same.length===1){ sub.style.display='none'; sub.innerHTML=''; }
+  else if(!same.length){ sub.style.display=''; var cw=walOf(F.w); sub.innerHTML='<div class="small muted" style="margin:0 4px">'+esc(CURS[F.cur].name)+' hisobi yo‘q — summa kurs bo‘yicha “'+esc(cw.e+' '+cw.name)+'” hisobiga yoziladi</div>'; }
+  else { sub.style.display=''; sub.innerHTML=same.map(function(w){ return '<button class="chip'+(F.w===w.id?' on':'')+'" data-act="fwal" data-id="'+esc(w.id)+'">'+esc(w.e+' '+w.name)+'</button>'; }).join(''); }
   if(!X) $('#txCats').innerHTML=catsFor(F.t).map(function(c){ return '<button class="chip'+(F.c===c.id?' on':'')+'" data-act="fcat" data-id="'+esc(c.id)+'">'+esc(c.e+' '+c.name)+'</button>'; }).join('');
   $('#txWal').innerHTML=S.wallets.map(function(w){ return '<button class="chip'+(F.w===w.id?' on':'')+'" data-act="fwal" data-id="'+esc(w.id)+'">'+esc(w.e+' '+w.name)+'</button>'; }).join('');
   $('#txWal2').innerHTML=S.wallets.map(function(w){ return '<button class="chip'+(F.w2===w.id?' on':'')+'" data-act="fwal2" data-id="'+esc(w.id)+'"'+(w.id===F.w?' disabled':'')+'>'+esc(w.e+' '+w.name)+'</button>'; }).join('');
@@ -1321,7 +1328,7 @@ var A={
   fwal2:function(el){ F.w2=el.dataset.id; F.a2manual=false; drawForm(); hap(); },
   fcur:function(el){ F.cur=el.dataset.c;
     /* valyuta tanlansa — o'sha valyutadagi hisob avtomatik tanlanadi */
-    if(F.t!=='x' && walOf(F.w).cur!==F.cur){ var m=walForCur(F.cur); if(m) F.w=m; else toast(CURS[F.cur].name+' hisobi yo‘q — “+ Hisob qo‘shish” orqali oching'); }
+    if(F.t!=='x' && walOf(F.w).cur!==F.cur){ var m=walForCur(F.cur); if(m) F.w=m; }
     drawForm(); hap(); },
   fdate:function(el){ F.d=ymd(addDays(today0(),+el.dataset.o)); drawForm(); hap(); },
   frep:function(){ F.rep=!F.rep; drawForm(); hap(); },
