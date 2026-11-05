@@ -98,6 +98,17 @@ h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;
 /* rows */
 .tx,.list .item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--sep)}
 .tx:last-child,.list .item:last-child{border-bottom:0}
+/* chapga surib o'chirish */
+.sw{position:relative;border-bottom:1px solid var(--sep);overflow:hidden}
+.sw:last-child{border-bottom:0}
+.sw>.tx{border-bottom:0;position:relative;touch-action:pan-y;transition:transform .22s ease;will-change:transform}
+.sw.drag>.tx{transition:none}
+.sw.open>.tx{transform:translateX(-92px)}
+.swdel{position:absolute;right:0;top:6px;bottom:6px;width:84px;border:0;border-radius:14px;background:var(--exp);color:#fff;font:600 13px/1.1 inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;opacity:0;transition:opacity .22s}
+.swdel span{font-size:18px}
+.sw.open .swdel{opacity:1}
+#toast.act{pointer-events:auto}
+#toast button{background:none;border:0;color:#7fc0ff;font:700 14px inherit;margin-left:12px;padding:2px 0}
 .ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:20px;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7)}
 .tx .amt{font-weight:600;white-space:nowrap}
 .amt.neu{color:var(--accent)}
@@ -381,7 +392,13 @@ function amountOf(s){ var v=hasOps(s)?evalExpr(s):parseAmt(s); return isFinite(v
 function bindAmt(inp){ inp.addEventListener('input',function(){ liveFormat(inp); }); }
 
 var toastT;
-function toast(m){ var t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show');},2600); }
+function toast(m){ var t=$('#toast'); t.textContent=m; t.classList.remove('act'); t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show');},2600); }
+/* "Qaytarish" tugmali bildirishnoma */
+function toastUndo(m,undo){
+  var t=$('#toast'); t.textContent=m; var b=document.createElement('button'); b.textContent='Qaytarish'; t.appendChild(b);
+  b.onclick=function(ev){ ev.stopPropagation(); clearTimeout(toastT); t.classList.remove('show','act'); undo(); };
+  t.classList.add('show','act'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show','act');},5000);
+}
 
 /* ---------- Ma'lumotlar ---------- */
 var DEF_RATES={UZS:11920,EGP:54.77};
@@ -609,6 +626,9 @@ function periodBar(){
   return h;
 }
 function txRow(x){
+  return '<div class="sw"><button class="swdel" data-act="swdel" data-id="'+esc(x.id)+'" aria-label="O‘chirish"><span>🗑</span>O‘chirish</button>'+txInner(x)+'</div>';
+}
+function txInner(x){
   if(x.t==='x'){
     var a1=walOf(x.w), a2=walOf(x.w2), ex=x.cur!==x.cur2;
     var sb=esc(a1.e+' '+a1.name+' → '+a2.e+' '+a2.name)+(x.n?' · '+esc(x.n):'');
@@ -1279,6 +1299,15 @@ var A={
     toast(F.id?'O‘zgartirildi':(F.t==='i'?'Kirim':F.t==='x'?'O‘tkazma':'Chiqim')+' qo‘shildi: '+amt(a,F.cur)+(F.rep?' · har oy takrorlanadi':''));
     checkLimit(rec);
   },
+  swdel:function(el){
+    var id=el.dataset.id, i=-1; S.tx.forEach(function(x,k){ if(x.id===id) i=k; }); if(i<0) return;
+    var x=S.tx[i], row=el.parentNode; hap('warn'); SW.open=null;
+    row.style.transition='height .22s ease,opacity .22s'; row.style.height=row.offsetHeight+'px'; row.offsetHeight; row.style.height='0'; row.style.opacity='0';
+    setTimeout(function(){
+      S.tx.splice(i,1); save(); render();
+      toastUndo('O‘chirildi: '+(x.t==='i'?'+':x.t==='e'?'−':'')+amt(x.a,x.cur),function(){ S.tx.splice(Math.min(i,S.tx.length),0,x); save(); render(); hap('ok'); });
+    },220);
+  },
   delTx:function(){ ask('Bu yozuvni o‘chirasizmi?').then(function(ok){ if(!ok) return;
     S.tx=S.tx.filter(function(x){return x.id!==F.id;}); save(); closeTop(); render(); hap('warn'); toast('O‘chirildi'); }); },
   /* ro'yxat va hisobot */
@@ -1399,6 +1428,41 @@ function goalMove(id,sign){
   var done=goalSaved(g)>=g.target;
   save(); render(); goalView(id); hap('ok'); toast(done&&sign>0?'🎉 Maqsadga erishdingiz!':(sign>0?'Qo‘shildi: ':'Olindi: ')+money(Math.abs(u)));
 }
+
+/* ---------- Yozuvni chapga surish → o'chirish tugmasi ---------- */
+var SW={row:null,x0:0,y0:0,dx:0,mode:'',open:null,moved:false,pid:null};
+var SW_W=92;
+function swClose(r){ r=r||SW.open; if(r){ r.classList.remove('open'); var t=r.querySelector('.tx'); if(t) t.style.transform=''; var b=r.querySelector('.swdel'); if(b) b.style.opacity=''; } if(!r||r===SW.open) SW.open=null; }
+document.addEventListener('pointerdown',function(e){
+  if(e.pointerType==='mouse'&&e.button!==0) return;
+  var r=e.target.closest('.sw'); SW.moved=false;
+  if(SW.open&&SW.open!==r) swClose();
+  if(!r||e.target.closest('.swdel')){ SW.row=null; return; }
+  SW.row=r; SW.x0=e.clientX; SW.y0=e.clientY; SW.dx=0; SW.mode=''; SW.pid=e.pointerId;
+});
+document.addEventListener('pointermove',function(e){
+  var r=SW.row; if(!r||e.pointerId!==SW.pid) return;
+  var dx=e.clientX-SW.x0, dy=e.clientY-SW.y0;
+  if(!SW.mode){ if(Math.abs(dx)<8&&Math.abs(dy)<8) return; SW.mode=Math.abs(dx)>Math.abs(dy)?'h':'v'; if(SW.mode==='h'){ r.classList.add('drag'); SW.moved=true; } }
+  if(SW.mode!=='h') return;
+  var base=r.classList.contains('open')?-SW_W:0, off=Math.max(-SW_W*1.4,Math.min(0,base+dx));
+  SW.dx=off; r.querySelector('.tx').style.transform='translateX('+off+'px)';
+  r.querySelector('.swdel').style.opacity=Math.min(1,-off/SW_W);
+});
+function swEnd(e){
+  var r=SW.row; if(!r||e.pointerId!==SW.pid) return; SW.row=null;
+  if(SW.mode!=='h') return;
+  r.classList.remove('drag'); r.querySelector('.tx').style.transform=''; r.querySelector('.swdel').style.opacity='';
+  if(SW.dx<-SW_W*0.45){ if(!r.classList.contains('open')) hap(); r.classList.add('open'); SW.open=r; } else swClose(r);
+}
+document.addEventListener('pointerup',swEnd);
+document.addEventListener('pointercancel',swEnd);
+document.addEventListener('click',function(e){
+  /* surishdan keyingi "click"ni yutib yuborish; ochiq qatorga bosilsa — yopish */
+  if(SW.moved){ SW.moved=false; e.preventDefault(); e.stopPropagation(); return; }
+  if(SW.open&&!e.target.closest('.swdel')){ swClose(); e.preventDefault(); e.stopPropagation(); return; }
+},true);
+document.addEventListener('scroll',function(){ if(SW.open) swClose(); },{passive:true});
 
 document.addEventListener('click',function(e){
   var el=e.target.closest('[data-act]'); if(!el || el.disabled) return;
